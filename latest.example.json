@@ -1,0 +1,25 @@
+{
+  "product": "VYNTRIA",
+  "channel": "stable",
+  "version": "0.0.0-example",
+  "published_at": null,
+  "minimum_supported_version": null,
+  "release_notes_url": "",
+  "downloads": [
+    {
+      "platform": "windows-x64",
+      "url": "",
+      "sha256": ""
+    },
+    {
+      "platform": "macos-arm64",
+      "url": "",
+      "sha256": ""
+    },
+    {
+      "platform": "macos-x64",
+      "url": "",
+      "sha256": ""
+    }
+  ]
+}
