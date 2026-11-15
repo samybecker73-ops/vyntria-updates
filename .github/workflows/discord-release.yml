@@ -5,79 +5,186 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   announce:
     name: Announce VYNTRIA release in Discord
     if: ${{ github.event.release.prerelease == false }}
     runs-on: ubuntu-latest
-    env:
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
     steps:
-      - name: Check Discord webhook configuration
-        id: webhook
-        shell: bash
-        run: |
-          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Secret DISCORD_WEBHOOK_URL is not configured. No Discord message was sent."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Send release announcement to Discord
-        if: steps.webhook.outputs.configured == 'true'
-        shell: bash
+      - name: Generate source changes and announce release
+        uses: actions/github-script@v7
         env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
           APP_NAME: "VYNTRIA"
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_NAME: ${{ github.event.release.name }}
-          RELEASE_BODY: ${{ github.event.release.body }}
-          RELEASE_URL: ${{ github.event.release.html_url }}
-          RELEASED_AT: ${{ github.event.release.published_at }}
-        run: |
-          set -euo pipefail
+          SOURCE_REPOSITORY: "samybecker73-ops/vyntria"
+          SOURCE_BRANCH: "main"
+          BASELINE_PATH: ".kavio/source-baseline.json"
+        with:
+          script: |
+            const webhook = process.env.DISCORD_WEBHOOK_URL;
+            if (!webhook) {
+              core.warning('Secret DISCORD_WEBHOOK_URL absent : annonce Discord ignorée.');
+              return;
+            }
 
-          jq -n \
-            --arg app "$APP_NAME" \
-            --arg tag "$RELEASE_TAG" \
-            --arg release_name "$RELEASE_NAME" \
-            --arg body "$RELEASE_BODY" \
-            --arg url "$RELEASE_URL" \
-            --arg released_at "$RELEASED_AT" \
-            --arg repository "$GITHUB_REPOSITORY" \
-            '{
-              username: "KAVIO Updates",
-              embeds: [
-                {
-                  title: ($app + " — " + (if $tag != "" then $tag else "Nouvelle version" end)),
-                  url: $url,
-                  description: (
-                    if ($body | gsub("^\\s+|\\s+$"; "")) == "" then
-                      "Une nouvelle version est disponible. Consultez la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour."
-                    elif ($body | length) > 3500 then
-                      $body[0:3490] + "…"
-                    else
-                      $body
-                    end
-                  ),
-                  color: 12632256,
-                  fields: [
-                    {name: "Application", value: $app, inline: true},
-                    {name: "Version", value: (if $tag != "" then $tag else "Non précisée" end), inline: true}
-                  ],
-                  footer: {text: ("KAVIO • Publication officielle • " + $repository)},
-                  timestamp: $released_at
+            const release = context.payload.release;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const app = process.env.APP_NAME;
+            const sourceRepo = process.env.SOURCE_REPOSITORY;
+            const sourceBranch = process.env.SOURCE_BRANCH;
+            const sourceToken = process.env.SOURCE_REPO_TOKEN;
+
+            let comparisonSucceeded = false;
+            let sourceHeadSha = '';
+            let baselineFile = null;
+            let generatedNotes = '';
+
+            if (!sourceToken) {
+              core.warning('SOURCE_REPO_TOKEN absent : seules les notes manuelles de la Release seront annoncées.');
+            } else {
+              try {
+                const { data: baselineResponse } = await github.rest.repos.getContent({
+                  owner,
+                  repo,
+                  path: process.env.BASELINE_PATH
+                });
+                baselineFile = baselineResponse;
+                const baseline = JSON.parse(Buffer.from(baselineResponse.content, 'base64').toString('utf8'));
+                const baselineSha = baseline.last_released_source_sha;
+
+                if (!baselineSha) throw new Error('Le SHA de référence est absent du fichier de baseline.');
+
+                const sourceGet = async function(path) {
+                  const response = await fetch('https://api.github.com' + path, {
+                    headers: {
+                      Authorization: 'Bearer ' + sourceToken,
+                      Accept: 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28'
+                    }
+                  });
+                  if (!response.ok) {
+                    throw new Error('GitHub Source API ' + response.status + ' sur ' + path);
+                  }
+                  return await response.json();
+                };
+
+                const head = await sourceGet('/repos/' + sourceRepo + '/commits/' + encodeURIComponent(sourceBranch));
+                sourceHeadSha = head.sha;
+
+                if (sourceHeadSha !== baselineSha) {
+                  const comparison = await sourceGet(
+                    '/repos/' + sourceRepo + '/compare/' + encodeURIComponent(baselineSha) + '...' +
+                    encodeURIComponent(sourceHeadSha) + '?per_page=100'
+                  );
+                  if (comparison.status === 'diverged') {
+                    throw new Error('La branche source a divergé de la référence de la version précédente.');
+                  }
+
+                  const groups = {
+                    'Fonctionnalités': [],
+                    'Corrections': [],
+                    'Améliorations': [],
+                    'Autres modifications': []
+                  };
+
+                  for (const item of (comparison.commits || [])) {
+                    const title = (((item.commit || {}).message) || '').split('\n')[0].trim();
+                    if (!title || /^(merge pull request|merge branch)\b/i.test(title)) continue;
+                    if (/^(ci|chore|docs|test|build|style)(\([^)]+\))?:/i.test(title)) continue;
+
+                    if (/^(feat|feature)(\([^)]+\))?:/i.test(title)) groups['Fonctionnalités'].push(title.replace(/^[^:]+:\s*/, ''));
+                    else if (/^(fix|bugfix)(\([^)]+\))?:/i.test(title)) groups['Corrections'].push(title.replace(/^[^:]+:\s*/, ''));
+                    else if (/^(perf|refactor|security|improve|enhancement)(\([^)]+\))?:/i.test(title)) groups['Améliorations'].push(title.replace(/^[^:]+:\s*/, ''));
+                    else groups['Autres modifications'].push(title);
+                  }
+
+                  const sections = [];
+                  for (const label of Object.keys(groups)) {
+                    const items = [...new Set(groups[label])];
+                    if (items.length) {
+                      sections.push('**' + label + '**\n' + items.slice(0, 12).map(value => '• ' + value).join('\n'));
+                      if (items.length > 12) sections.push('• ' + (items.length - 12) + ' autre(s) changement(s) dans le dépôt.');
+                    }
+                  }
+
+                  if (sections.length) {
+                    generatedNotes = '## Changements depuis la version précédente\n' +
+                      'Résumé automatique des commits du dépôt source (' + comparison.total_commits + ' commit(s) comparé(s)) :\n\n' +
+                      sections.join('\n\n');
+                  }
+                } else {
+                  core.info('Aucun nouveau commit source depuis la dernière version publiée.');
                 }
-              ],
-              allowed_mentions: {parse: []}
-            }' > discord-payload.json
 
-          curl --fail-with-body --silent --show-error \
-            --retry 3 --retry-all-errors \
-            -H "Content-Type: application/json" \
-            --data @discord-payload.json \
-            "$DISCORD_WEBHOOK_URL"
+                comparisonSucceeded = true;
+              } catch (error) {
+                core.warning('Impossible de comparer le dépôt source privé : ' + error.message);
+              }
+            }
 
-          echo "Discord announcement sent for $APP_NAME $RELEASE_TAG."
+            const originalBody = (release.body || '').trim();
+            const finalBody = [generatedNotes, originalBody].filter(Boolean).join('\n\n') ||
+              'Une nouvelle version est disponible. Consultez la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour.';
+
+            if (finalBody !== (release.body || '')) {
+              await github.rest.repos.updateRelease({
+                owner,
+                repo,
+                release_id: release.id,
+                body: finalBody.slice(0, 60000)
+              });
+              core.info('Notes de version enrichies.');
+            }
+
+            const payload = {
+              username: 'KAVIO Updates',
+              embeds: [{
+                title: app + ' — ' + (release.tag_name || 'Nouvelle version'),
+                url: release.html_url,
+                description: finalBody.slice(0, 3500),
+                color: 12632256,
+                fields: [
+                  { name: 'Application', value: app, inline: true },
+                  { name: 'Version', value: release.tag_name || 'Non précisée', inline: true }
+                ],
+                footer: { text: 'KAVIO • Publication officielle • ' + app },
+                timestamp: release.published_at || new Date().toISOString()
+              }],
+              allowed_mentions: { parse: [] }
+            };
+
+            const response = await fetch(webhook, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              const detail = await response.text();
+              throw new Error('Échec du webhook Discord (' + response.status + ') : ' + detail.slice(0, 500));
+            }
+            core.info('Annonce Discord envoyée pour ' + app + ' ' + release.tag_name + '.');
+
+            if (comparisonSucceeded && sourceHeadSha && baselineFile) {
+              const nextBaseline = {
+                source_repository: sourceRepo,
+                source_branch: sourceBranch,
+                last_released_source_sha: sourceHeadSha,
+                last_release_tag: release.tag_name,
+                updated_at: new Date().toISOString()
+              };
+              await github.rest.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: process.env.BASELINE_PATH,
+                message: 'chore: update source baseline after ' + app + ' ' + release.tag_name,
+                content: Buffer.from(JSON.stringify(nextBaseline, null, 2) + '\n').toString('base64'),
+                sha: baselineFile.sha,
+                branch: context.payload.repository.default_branch
+              });
+              core.info('Référence source enregistrée pour la prochaine comparaison.');
+            }
