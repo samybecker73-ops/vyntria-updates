@@ -1,0 +1,127 @@
+name: KAVIO incident bridge — VYNTRIA
+
+on:
+  issues:
+    types: [opened, reopened, closed]
+  workflow_run:
+    workflows:
+      - "KAVIO Discord Release Announcement"
+      - "VYNTRIA Discord Announcement (manual)"
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  actions: read
+
+jobs:
+  notify-discord:
+    name: Send KAVIO incident notification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send incident notification
+        uses: actions/github-script@v7
+        env:
+          DISCORD_INCIDENTS_WEBHOOK_URL: ${{ secrets.DISCORD_INCIDENTS_WEBHOOK_URL }}
+        with:
+          script: |
+            const webhook = process.env.DISCORD_INCIDENTS_WEBHOOK_URL;
+            if (!webhook) {
+              core.warning('Secret DISCORD_INCIDENTS_WEBHOOK_URL absent : notification Discord ignorée.');
+              return;
+            }
+
+            const appName = 'VYNTRIA';
+            const repoName = context.repo.owner + '/' + context.repo.repo;
+            let embed;
+
+            if (context.eventName === 'issues') {
+              const issue = context.payload.issue || {};
+              const action = context.payload.action;
+              if (!['opened', 'reopened', 'closed'].includes(action)) return;
+
+              const closed = action === 'closed';
+              const resolved = closed && issue.state_reason === 'completed';
+              const status = action === 'opened'
+                ? 'Nouveau signalement'
+                : action === 'reopened'
+                  ? 'Signalement réouvert'
+                  : resolved
+                    ? 'Corrigé / résolu'
+                    : 'Signalement clôturé';
+              const labels = (issue.labels || [])
+                .map(label => typeof label === 'string' ? label : label.name)
+                .filter(Boolean)
+                .join(', ') || 'Aucun';
+
+              embed = {
+                title: (closed ? '✅ ' : '🐞 ') + appName + ' — ' + status,
+                url: issue.html_url,
+                description: 'Un signalement GitHub a été ' +
+                  (action === 'opened' ? 'créé' : action === 'reopened' ? 'réouvert' : 'clôturé') +
+                  '. Consulte le ticket GitHub pour son contenu et son suivi.',
+                color: closed ? (resolved ? 5763719 : 9807270) : 15158332,
+                fields: [
+                  { name: 'Dépôt', value: repoName, inline: true },
+                  { name: 'Ticket', value: '#' + String(issue.number || '?'), inline: true },
+                  { name: 'État', value: status, inline: true },
+                  { name: 'Libellés', value: labels.slice(0, 500), inline: false }
+                ],
+                footer: { text: 'KAVIO • Centre des incidents • ' + appName },
+                timestamp: issue.updated_at || new Date().toISOString()
+              };
+            } else if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run || {};
+              const conclusion = run.conclusion || 'unknown';
+              const failures = ['failure', 'timed_out', 'startup_failure', 'action_required'];
+              if (!failures.includes(conclusion)) return;
+
+              embed = {
+                title: '🔴 ' + appName + ' — Échec GitHub Actions',
+                url: run.html_url,
+                description: 'Le workflow **' + String(run.name || 'Workflow GitHub Actions').slice(0, 180) +
+                  '** s’est terminé avec le statut **' + conclusion + '**. Ouvre l’exécution pour consulter les étapes et les journaux.',
+                color: 15158332,
+                fields: [
+                  { name: 'Dépôt', value: repoName, inline: true },
+                  { name: 'Branche', value: String(run.head_branch || 'Inconnue').slice(0, 100), inline: true },
+                  { name: 'Exécution', value: '#' + String(run.run_number || run.id || '?'), inline: true },
+                  { name: 'Commit', value: String(run.head_sha || '—').slice(0, 7), inline: true },
+                  { name: 'Déclencheur', value: String(run.event || 'Inconnu').slice(0, 100), inline: true }
+                ],
+                footer: { text: 'KAVIO • Surveillance des builds • ' + appName },
+                timestamp: run.updated_at || new Date().toISOString()
+              };
+            } else if (context.eventName === 'workflow_dispatch') {
+              embed = {
+                title: '✅ Test de connexion GitHub — ' + appName,
+                description: 'Le pont GitHub → Discord répond correctement pour ce dépôt.',
+                color: 5763719,
+                fields: [
+                  { name: 'Dépôt', value: repoName, inline: true },
+                  { name: 'État', value: 'Connexion opérationnelle', inline: true }
+                ],
+                footer: { text: 'KAVIO • Test du centre des incidents' },
+                timestamp: new Date().toISOString()
+              };
+            } else {
+              return;
+            }
+
+            const response = await fetch(webhook, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                username: 'KAVIO Incident Monitor',
+                embeds: [embed],
+                allowed_mentions: { parse: [] }
+              })
+            });
+
+            if (!response.ok) {
+              const detail = await response.text();
+              throw new Error('Webhook Discord (' + response.status + ') : ' + detail.slice(0, 400));
+            }
+
+            core.info('Notification KAVIO envoyée pour ' + appName + '.');
