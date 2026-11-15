@@ -130,15 +130,7 @@ jobs:
             const finalBody = [generatedNotes, originalBody].filter(Boolean).join('\n\n') ||
               'Une nouvelle version est disponible. Consultez la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour.';
 
-            if (finalBody !== (release.body || '')) {
-              await github.rest.repos.updateRelease({
-                owner,
-                repo,
-                release_id: release.id,
-                body: finalBody.slice(0, 60000)
-              });
-              core.info('Notes de version enrichies.');
-            }
+            // Le résumé est conservé pour Discord uniquement. Ne pas modifier la Release GitHub.
 
             const payload = {
               username: 'KAVIO Updates',
