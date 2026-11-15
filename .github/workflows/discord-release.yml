@@ -17,7 +17,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
-          DISCORD_APP_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_APP_RELEASE_WEBHOOK_URL }}
+          DISCORD_APP_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD }}
           SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
           APP_NAME: "VYNTRIA"
           SOURCE_REPOSITORY: "samybecker73-ops/vyntria"
