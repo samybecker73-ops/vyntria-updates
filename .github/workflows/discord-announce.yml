@@ -1,0 +1,100 @@
+name: VYNTRIA Discord Announcement (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version à annoncer (laisser vide pour la dernière version stable)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    name: Announce an existing VYNTRIA release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send release announcement to Discord
+        uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.discord }}
+          RELEASE_TAG_INPUT: ${{ inputs.tag }}
+        with:
+          script: |
+            const webhook = process.env.DISCORD_WEBHOOK_URL;
+            if (!webhook) {
+              core.setFailed('Webhook Discord absent : vérifie le secret DISCORD_WEBHOOK_URL dans Settings > Secrets and variables > Actions.');
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const requestedTag = (process.env.RELEASE_TAG_INPUT || '').trim();
+            const normalizeTag = value => String(value || '').trim().replace(/^v/i, '').toLowerCase();
+
+            const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 });
+            const stable = releases
+              .filter(item => !item.draft && !item.prerelease && item.published_at)
+              .sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+
+            let release;
+            if (requestedTag) {
+              release = stable.find(item =>
+                item.tag_name.toLowerCase() === requestedTag.toLowerCase() ||
+                normalizeTag(item.tag_name) === normalizeTag(requestedTag)
+              );
+              if (!release) {
+                const available = [...new Set(stable.map(item => item.tag_name))].slice(0, 12);
+                core.setFailed('Version "' + requestedTag + '" introuvable. Versions disponibles : ' + (available.join(', ') || 'aucune') + '.');
+                return;
+              }
+            } else {
+              release = stable[0];
+            }
+
+            if (!release) {
+              core.setFailed('Aucune Release stable n’a été trouvée dans VYNTRIA-UPDATES.');
+              return;
+            }
+
+            const intro = '**VYNTRIA — l’environnement numérique modulaire de KAVIO.**\n' +
+              'Organisé autour de neuf centres, VYNTRIA réunit des outils pour gérer produits et sites, fichiers et médias, projets et tâches locales, ressources, diagnostic système et développement. La version 0.11.0 apporte également un coffre de sécurité local chiffré AES-256-GCM et la vérification SHA-256 des mises à jour.\n\n';
+            const finalBody = intro + ((release.body || '').trim() ||
+              'Une nouvelle version stable est disponible. Consulte la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour.');
+
+            const payload = {
+              username: 'KAVIO Updates',
+              embeds: [{
+                title: 'VYNTRIA — ' + release.tag_name,
+                url: release.html_url,
+                description: finalBody.slice(0, 3500),
+                color: 12632256,
+                image: {
+                  url: 'https://raw.githubusercontent.com/samybecker73-ops/vyntria-updates/main/assets/discord/vyntria-logo.webp'
+                },
+                fields: [
+                  { name: 'Application', value: 'VYNTRIA', inline: true },
+                  { name: 'Version', value: release.tag_name, inline: true }
+                ],
+                footer: { text: 'KAVIO • Publication officielle • VYNTRIA' },
+                timestamp: release.published_at
+              }],
+              allowed_mentions: { parse: [] }
+            };
+
+            const response = await fetch(webhook, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              const detail = await response.text();
+              core.setFailed('Échec du webhook Discord (' + response.status + ') : ' + detail.slice(0, 500));
+              return;
+            }
+
+            core.info('Annonce Discord envoyée pour VYNTRIA ' + release.tag_name + '.');
