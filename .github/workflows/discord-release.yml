@@ -1,0 +1,83 @@
+name: KAVIO Discord Release Announcement
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    name: Announce VYNTRIA release in Discord
+    if: ${{ github.event.release.prerelease == false }}
+    runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - name: Check Discord webhook configuration
+        id: webhook
+        shell: bash
+        run: |
+          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secret DISCORD_WEBHOOK_URL is not configured. No Discord message was sent."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send release announcement to Discord
+        if: steps.webhook.outputs.configured == 'true'
+        shell: bash
+        env:
+          APP_NAME: "VYNTRIA"
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASED_AT: ${{ github.event.release.published_at }}
+        run: |
+          set -euo pipefail
+
+          jq -n \
+            --arg app "$APP_NAME" \
+            --arg tag "$RELEASE_TAG" \
+            --arg release_name "$RELEASE_NAME" \
+            --arg body "$RELEASE_BODY" \
+            --arg url "$RELEASE_URL" \
+            --arg released_at "$RELEASED_AT" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            '{
+              username: "KAVIO Updates",
+              embeds: [
+                {
+                  title: ($app + " — " + (if $tag != "" then $tag else "Nouvelle version" end)),
+                  url: $url,
+                  description: (
+                    if ($body | gsub("^\\s+|\\s+$"; "")) == "" then
+                      "Une nouvelle version est disponible. Consultez la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour."
+                    elif ($body | length) > 3500 then
+                      $body[0:3490] + "…"
+                    else
+                      $body
+                    end
+                  ),
+                  color: 12632256,
+                  fields: [
+                    {name: "Application", value: $app, inline: true},
+                    {name: "Version", value: (if $tag != "" then $tag else "Non précisée" end), inline: true}
+                  ],
+                  footer: {text: ("KAVIO • Publication officielle • " + $repository)},
+                  timestamp: $released_at
+                }
+              ],
+              allowed_mentions: {parse: []}
+            }' > discord-payload.json
+
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -H "Content-Type: application/json" \
+            --data @discord-payload.json \
+            "$DISCORD_WEBHOOK_URL"
+
+          echo "Discord announcement sent for $APP_NAME $RELEASE_TAG."
