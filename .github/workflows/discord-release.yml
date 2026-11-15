@@ -16,7 +16,7 @@ jobs:
       - name: Generate source changes and announce release
         uses: actions/github-script@v7
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.discord }}
+          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
           SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
           APP_NAME: "VYNTRIA"
           SOURCE_REPOSITORY: "samybecker73-ops/vyntria"
@@ -24,9 +24,9 @@ jobs:
           BASELINE_PATH: ".kavio/source-baseline.json"
         with:
           script: |
-            const webhook = process.env.DISCORD_WEBHOOK_URL;
+            const webhook = process.env.DISCORD_RELEASE_WEBHOOK_URL;
             if (!webhook) {
-              core.warning('Secret DISCORD_WEBHOOK_URL absent : annonce Discord ignorée.');
+              core.warning('Secret DISCORD_RELEASE_WEBHOOK_URL absent : annonce Discord ignorée.');
               return;
             }
 
