@@ -20,13 +20,13 @@ jobs:
       - name: Send release announcement to Discord
         uses: actions/github-script@v7
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.discord }}
+          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
           RELEASE_TAG_INPUT: ${{ inputs.tag }}
         with:
           script: |
-            const webhook = process.env.DISCORD_WEBHOOK_URL;
+            const webhook = process.env.DISCORD_RELEASE_WEBHOOK_URL;
             if (!webhook) {
-              core.setFailed('Webhook Discord absent : vérifie le secret DISCORD_WEBHOOK_URL dans Settings > Secrets and variables > Actions.');
+              core.setFailed('Webhook Discord absent : vérifie le secret DISCORD_RELEASE_WEBHOOK_URL dans Settings > Secrets and variables > Actions.');
               return;
             }
 
