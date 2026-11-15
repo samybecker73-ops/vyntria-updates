@@ -178,7 +178,7 @@ jobs:
                 const detail = await appResponse.text();
                 throw new Error('Échec de l’annonce Discord dans le salon dédié : ' + appResponse.status + ' — ' + detail.slice(0, 500));
               }
-              core.info('Annonce ' + (typeof app !== 'undefined' ? app : 'ICON') + ' envoyée dans le salon dédié.');
+              core.info('Annonce VYNTRIA envoyée dans le salon dédié.');
             } else {
               core.warning('Secret DISCORD_APP_RELEASE_WEBHOOK_URL absent : annonce envoyée uniquement dans #notes-de-version. Ajoute le webhook du salon applicatif dans les secrets Actions de ce dépôt.');
             }
