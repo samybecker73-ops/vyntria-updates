@@ -16,7 +16,7 @@ jobs:
       - name: Generate source changes and announce release
         uses: actions/github-script@v7
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.discord }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.discord }}
           SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
           APP_NAME: "VYNTRIA"
           SOURCE_REPOSITORY: "samybecker73-ops/vyntria"
@@ -127,8 +127,10 @@ jobs:
             }
 
             const originalBody = (release.body || '').trim();
-            const finalBody = [generatedNotes, originalBody].filter(Boolean).join('\n\n') ||
-              'Une nouvelle version est disponible. Consultez la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour.';
+            const intro = '**VYNTRIA — l’environnement numérique modulaire de KAVIO.**\n' +
+              'Organisé autour de neuf centres, VYNTRIA réunit des outils pour gérer produits et sites, fichiers et médias, projets et tâches locales, ressources, diagnostic système et développement. La version 0.11.0 apporte également un coffre de sécurité local chiffré AES-256-GCM et la vérification SHA-256 des mises à jour.\n\n';
+            const finalBody = intro + ([generatedNotes, originalBody].filter(Boolean).join('\n\n') ||
+              'Une nouvelle version stable est disponible. Consulte la publication GitHub pour découvrir les nouveautés et télécharger la mise à jour.');
 
             // Le résumé est conservé pour Discord uniquement. Ne pas modifier la Release GitHub.
 
@@ -139,6 +141,9 @@ jobs:
                 url: release.html_url,
                 description: finalBody.slice(0, 3500),
                 color: 12632256,
+                image: {
+                  url: 'https://raw.githubusercontent.com/samybecker73-ops/vyntria-updates/main/assets/discord/vyntria-logo.webp'
+                },
                 fields: [
                   { name: 'Application', value: app, inline: true },
                   { name: 'Version', value: release.tag_name || 'Non précisée', inline: true }
