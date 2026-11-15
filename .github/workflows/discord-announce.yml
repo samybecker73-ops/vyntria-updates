@@ -21,6 +21,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          DISCORD_APP_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_APP_RELEASE_WEBHOOK_URL }}
           RELEASE_TAG_INPUT: ${{ inputs.tag }}
         with:
           script: |
@@ -98,3 +99,19 @@ jobs:
             }
 
             core.info('Annonce Discord envoyée pour VYNTRIA ' + release.tag_name + '.');
+
+            const appWebhook = process.env.DISCORD_APP_RELEASE_WEBHOOK_URL;
+            if (appWebhook) {
+              const appResponse = await fetch(appWebhook, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              if (!appResponse.ok) {
+                const detail = await appResponse.text();
+                throw new Error('Échec de l’annonce Discord dans le salon dédié : ' + appResponse.status + ' — ' + detail.slice(0, 500));
+              }
+              core.info('Annonce ' + (typeof app !== 'undefined' ? app : 'ICON') + ' envoyée dans le salon dédié.');
+            } else {
+              core.warning('Secret DISCORD_APP_RELEASE_WEBHOOK_URL absent : annonce envoyée uniquement dans #notes-de-version. Ajoute le webhook du salon applicatif dans les secrets Actions de ce dépôt.');
+            }
