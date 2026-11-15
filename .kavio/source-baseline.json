@@ -1,0 +1,7 @@
+{
+  "source_repository": "samybecker73-ops/vyntria",
+  "source_branch": "main",
+  "last_released_source_sha": "edf452a77d855c4eb3da758f8deb0d8eab9b1005",
+  "last_release_tag": "v0.11.0",
+  "baseline_reason": "Source main HEAD captured after public release v0.11.0 and Discord announcement setup."
+}
