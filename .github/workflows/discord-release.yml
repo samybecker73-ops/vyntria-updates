@@ -16,7 +16,7 @@ jobs:
       - name: Generate source changes and announce release
         uses: actions/github-script@v7
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.discord }}
           SOURCE_REPO_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
           APP_NAME: "VYNTRIA"
           SOURCE_REPOSITORY: "samybecker73-ops/vyntria"
